@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from . import __version__
 from .config import settings
 from .db import get_session
-from .routes import invitations, orgs
+from .routes import e8, invitations, orgs
 
 REQUESTS = Histogram("eightguard_http_request_duration_seconds", "HTTP request latency", ["method", "route", "status"])
 
@@ -49,3 +49,4 @@ def version():
 
 app.include_router(orgs.router)
 app.include_router(invitations.router)
+app.include_router(e8.router)

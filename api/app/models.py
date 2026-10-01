@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, LargeBinary, String, func
+from sqlalchemy import DateTime, Enum, ForeignKey, LargeBinary, SmallInteger, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -68,6 +68,57 @@ class Invitation(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     accepted_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+
+
+class E8Answer(str, enum.Enum):
+    yes = "yes"
+    partly = "partly"  # counts as not met
+    no = "no"
+    na = "na"  # not applicable: counts as met
+
+
+e8_answer_type = Enum(E8Answer, name="e8_answer", values_callable=lambda e: [a.value for a in e])
+
+
+class E8Assessment(Base):
+    """The organisation's living Essential Eight assessment settings (one row per org)."""
+
+    __tablename__ = "e8_assessments"
+
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id", ondelete="CASCADE"), primary_key=True)
+    target_level: Mapped[int] = mapped_column(SmallInteger, default=1)
+    updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class E8AnswerRow(Base):
+    """The current answer to one requirement (by content answer key)."""
+
+    __tablename__ = "e8_answers"
+
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id", ondelete="CASCADE"), primary_key=True)
+    key: Mapped[str] = mapped_column(String(32), primary_key=True)
+    answer: Mapped[E8Answer] = mapped_column(e8_answer_type)
+    note: Mapped[str] = mapped_column(String(2000), default="")
+    answered_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    answered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class E8Snapshot(Base):
+    """A completed assessment: score and answers frozen at that moment. Append-only (RLS has
+    no UPDATE or DELETE policy)."""
+
+    __tablename__ = "e8_snapshots"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id", ondelete="CASCADE"))
+    content_version: Mapped[str] = mapped_column(String(40))
+    target_level: Mapped[int] = mapped_column(SmallInteger)
+    overall_level: Mapped[int] = mapped_column(SmallInteger)
+    score: Mapped[dict] = mapped_column(JSONB)
+    answers: Mapped[dict] = mapped_column(JSONB)  # {key: {"answer": ..., "note": ...}}
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Job(Base):
