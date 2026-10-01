@@ -32,9 +32,14 @@ def _ids(alice, bob):
 
 
 def test_database_without_context_sees_nothing(alice, bob):
-    _ids(alice, bob)
+    acme, _, _ = _ids(alice, bob)
+    invite(alice, acme, "carol@acme.example")
+    alice.patch(f"/api/orgs/{acme}/e8", json={"target_level": 2})
+    alice.put(f"/api/orgs/{acme}/e8/answers/MFA-1.01", json={"answer": "yes"})
+    alice.post(f"/api/orgs/{acme}/e8/snapshots")
+    tables = ("users", "organisations", "memberships", "invitations", "e8_assessments", "e8_answers", "e8_snapshots")
     with engine.connect() as conn:  # the app's own role, no tenant context set
-        for table in ("users", "organisations", "memberships", "invitations"):
+        for table in tables:
             assert conn.execute(text(f"SELECT count(*) FROM {table}")).scalar() == 0, table
 
 
@@ -72,3 +77,54 @@ def test_invitation_token_only_reveals_its_own_org(alice, bob, anon):
     with SessionLocal() as s, s.begin():
         set_context(s, invite_hash="00" * 32)  # a wrong token sees nothing
         assert s.execute(text("SELECT count(*) FROM organisations")).scalar() == 0
+
+
+def test_invitee_only_sees_their_own_invitation_and_org_name(alice, bob, carol):
+    acme = alice.create_org("Acme")
+    globex = bob.create_org("Globex")
+    invite(alice, acme, "carol@acme.example")
+    invite(alice, acme, "dave@acme.example")
+    invite(bob, globex, "erin@globex.example")
+    carol_id = carol.get("/api/me").json()["id"]
+    with SessionLocal() as s, s.begin():
+        set_context(s, user_id=carol_id, user_email="carol@acme.example")
+        assert s.execute(text("SELECT email FROM invitations")).scalars().all() == ["carol@acme.example"]
+        assert s.execute(text("SELECT name FROM organisations")).scalars().all() == ["Acme"]
+        assert s.execute(text("SELECT count(*) FROM memberships")).scalar() == 0
+
+
+def test_e8_assessment_is_private_to_its_org(alice, bob):
+    acme, globex, bob_id = _ids(alice, bob)
+    alice.put(f"/api/orgs/{acme}/e8/answers/MFA-1.01", json={"answer": "yes"})
+    alice.post(f"/api/orgs/{acme}/e8/snapshots")
+    for path in ("", "/plan", "/snapshots"):
+        assert bob.get(f"/api/orgs/{acme}/e8{path}").status_code == 404, path
+    assert bob.put(f"/api/orgs/{acme}/e8/answers/MFA-1.01", json={"answer": "no"}).status_code == 404
+    assert bob.patch(f"/api/orgs/{acme}/e8", json={"target_level": 3}).status_code == 404
+    snap = alice.get(f"/api/orgs/{acme}/e8/snapshots").json()[0]["id"]
+    # a snapshot id from another org looks like a missing one, even through your own org
+    assert bob.get(f"/api/orgs/{globex}/e8/snapshots/{snap}").status_code == 404
+    assert bob.get(f"/api/orgs/{globex}/e8").json()["answers"] == []
+
+    with SessionLocal() as s, s.begin():
+        set_context(s, user_id=bob_id, org_id=globex)
+        for table in ("e8_assessments", "e8_answers", "e8_snapshots"):
+            assert s.execute(text(f"SELECT count(*) FROM {table}")).scalar() == 0, table
+        assert s.execute(text("UPDATE e8_answers SET answer = 'no'")).rowcount == 0
+        with pytest.raises(ProgrammingError, match="row-level security"):
+            s.execute(
+                text("INSERT INTO e8_answers (org_id, key, answer, answered_by) VALUES (:o, 'MFA-1.02', 'yes', :u)"),
+                {"o": acme, "u": bob_id},
+            )
+
+
+def test_e8_snapshots_are_append_only(alice):
+    acme = alice.create_org("Acme")
+    alice_id = alice.get("/api/me").json()["id"]
+    alice.put(f"/api/orgs/{acme}/e8/answers/MFA-1.01", json={"answer": "yes"})
+    alice.post(f"/api/orgs/{acme}/e8/snapshots")
+    with SessionLocal() as s, s.begin():
+        set_context(s, user_id=alice_id, org_id=acme)  # even inside the owning org
+        assert s.execute(text("UPDATE e8_snapshots SET overall_level = 3")).rowcount == 0
+        assert s.execute(text("DELETE FROM e8_snapshots")).rowcount == 0
+        assert s.execute(text("SELECT overall_level FROM e8_snapshots")).scalar() == 0

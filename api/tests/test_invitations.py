@@ -64,3 +64,29 @@ def test_reinvite_replaces_and_revoke(alice):
     [inv] = alice.get(f"/api/orgs/{org_id}/invitations").json()
     assert alice.delete(f"/api/orgs/{org_id}/invitations/{inv['id']}").status_code == 204
     assert alice.get(f"/api/orgs/{org_id}/invitations").json() == []
+
+
+# --- invitations found by verified email (no link needed) ----------------------------
+
+
+def test_invitee_sees_pending_invitations_without_the_link(alice, carol, bob):
+    acme = alice.create_org("Acme")
+    invite(alice, acme, "carol@acme.example", role="admin")
+    [mine] = carol.get("/api/me/invitations").json()
+    assert (mine["organisation"], mine["role"]) == ("Acme", "admin")
+    assert bob.get("/api/me/invitations").json() == []  # not addressed to bob
+
+    assert bob.post(f"/api/me/invitations/{mine['id']}/accept").status_code == 404
+    joined = carol.post(f"/api/me/invitations/{mine['id']}/accept").json()
+    assert joined["name"] == "Acme" and joined["role"] == "admin"
+    assert carol.get("/api/me/invitations").json() == []  # accepted ones disappear
+    assert [o["name"] for o in carol.get("/api/me").json()["organisations"]] == ["Acme"]
+
+
+def test_expired_invitation_is_not_offered(alice, carol):
+    acme = alice.create_org("Acme")
+    invite(alice, acme, "carol@acme.example")
+    with engine.begin() as conn:
+        conn.execute(text("SELECT set_config('app.org_id', :o, true)"), {"o": acme})
+        conn.execute(text("UPDATE invitations SET expires_at = now() - interval '1 minute'"))
+    assert carol.get("/api/me/invitations").json() == []

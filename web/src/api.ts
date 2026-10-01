@@ -13,6 +13,35 @@ export interface Org { id: string; name: string; abn: string | null; created_at:
 export interface Member { user_id: string; email: string; name: string; role: Role; joined_at: string }
 export interface Invitation { id: string; email: string; role: Role; created_at: string; expires_at: string }
 export interface InvitationPreview { organisation: string; email: string; role: Role; expires_at: string }
+export interface MyInvitation { id: string; organisation: string; role: Role; expires_at: string }
+
+// Essential Eight
+export type E8Answer = "yes" | "partly" | "no" | "na";
+export const E8_ANSWER_LABEL: Record<E8Answer, string> = { yes: "Yes", partly: "Partly", no: "No", na: "N/A" };
+export interface E8Strategy { code: string; name: string; priority: number; summary: string }
+export interface E8Requirement {
+  id: string; strategy: string; level: number; until: number | null; key: string;
+  effort: "low" | "medium" | "high"; title: string; text: string;
+}
+export interface E8Content {
+  version: string; attribution: string; source_url: string; licence_url: string;
+  strategies: E8Strategy[]; requirements: E8Requirement[];
+}
+export interface E8AnswerOut { key: string; answer: E8Answer; note: string; answered_by: string | null; answered_at: string }
+export interface E8StrategyScore { code: string; level: number; next_level: number | null; next_met: number; next_total: number }
+export interface E8Score { overall_level: number; strategies: E8StrategyScore[] }
+export interface E8Snapshot {
+  id: string; content_version: string; target_level: number; overall_level: number; score: E8Score;
+  created_by: string | null; created_at: string;
+}
+export interface E8Assessment {
+  content_version: string; target_level: number; answers: E8AnswerOut[]; score: E8Score; last_snapshot: E8Snapshot | null;
+}
+export interface E8PlanItem {
+  key: string; level: number; strategies: string[]; title: string; text: string;
+  effort: "low" | "medium" | "high"; answer: E8Answer | null; in_target: boolean;
+}
+export interface E8Plan { target_level: number; items: E8PlanItem[] }
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
