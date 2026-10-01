@@ -12,7 +12,7 @@ from ..config import settings
 from ..db import get_session, set_context
 from ..deps import Caller, OrgCaller, caller, org_member
 from ..models import Invitation, Membership, Organisation, Role, User
-from ..schemas import InvitationIn, InvitationOut, InvitationPreview, OrgSummary
+from ..schemas import InvitationIn, InvitationOut, InvitationPreview, MyInvitation, OrgSummary
 
 router = APIRouter(prefix="/api")
 
@@ -103,6 +103,31 @@ def accept(token: str, me: Caller = Depends(caller)):
     if invitation.email.lower() != me.user.email.lower():
         # a forwarded link must not let someone else join
         raise HTTPException(403, "this invitation is for a different email address")
+    return _join(me, invitation)
+
+
+@router.get("/me/invitations", response_model=list[MyInvitation])
+def my_invitations(me: Caller = Depends(caller)):
+    """Open invitations addressed to the caller's verified email (no link needed)."""
+    rows = me.session.execute(
+        select(Invitation.id, Organisation.name, Invitation.role, Invitation.expires_at)
+        .join(Organisation, Organisation.id == Invitation.org_id)
+        .where(func.lower(Invitation.email) == me.user.email.lower())
+        .order_by(Invitation.created_at)
+    ).all()
+    return [MyInvitation(id=i, organisation=o, role=r, expires_at=e) for i, o, r, e in rows]
+
+
+@router.post("/me/invitations/{invitation_id}/accept", response_model=OrgSummary)
+def accept_mine(invitation_id: uuid.UUID, me: Caller = Depends(caller)):
+    # row-level security only shows open invitations addressed to the caller's verified email
+    invitation = me.session.scalar(select(Invitation).where(Invitation.id == invitation_id))
+    if invitation is None or invitation.email.lower() != me.user.email.lower():  # defence in depth
+        raise HTTPException(404, "invitation not found or expired")
+    return _join(me, invitation)
+
+
+def _join(me: Caller, invitation: Invitation) -> OrgSummary:
     set_context(me.session, org_id=invitation.org_id)
     if me.session.get(Membership, (invitation.org_id, me.user.id)) is None:
         me.session.add(Membership(org_id=invitation.org_id, user_id=me.user.id, role=invitation.role))

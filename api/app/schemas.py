@@ -69,3 +69,10 @@ class InvitationPreview(BaseModel):
     email: str
     role: Role
     expires_at: datetime
+
+
+class MyInvitation(BaseModel):
+    id: uuid.UUID
+    organisation: str
+    role: Role
+    expires_at: datetime
