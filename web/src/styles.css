@@ -12,6 +12,8 @@
   --ok-soft: #e7f6ec;
   --bad: #b91c1c;
   --bad-soft: #fdecec;
+  --warn: #b45309;
+  --warn-soft: #fdf3e2;
   --radius: 12px;
   --shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px -12px rgba(15, 23, 42, 0.12);
   color-scheme: light;
@@ -30,6 +32,8 @@
     --ok-soft: #10301f;
     --bad: #f87171;
     --bad-soft: #3a1515;
+    --warn: #fbbf24;
+    --warn-soft: #3a2a0c;
     --shadow: none;
     color-scheme: dark;
   }
@@ -65,7 +69,7 @@ a.plain { text-decoration: none; }
 .btn.small { padding: 5px 10px; font-size: 0.85rem; }
 .btn:disabled { opacity: 0.55; cursor: default; }
 :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
-input, select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; }
 .form { display: grid; gap: 14px; }
 .form label { display: grid; gap: 6px; font-weight: 600; font-size: 0.92rem; }
 .form.inline { grid-template-columns: 1fr 200px auto; }
@@ -91,8 +95,6 @@ input, select { font: inherit; color: var(--text); background: var(--surface); b
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
 .score { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
 .score-num { font-size: 2.4rem; font-weight: 800; letter-spacing: -0.03em; }
-.checklist { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 4px; font-size: 0.9rem; }
-.checklist li::before { content: "○ "; color: var(--muted); }
 
 .table { width: 100%; border-collapse: collapse; }
 .table th { text-align: left; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 8px; border-bottom: 1px solid var(--line); }
@@ -123,3 +125,57 @@ input, select { font: inherit; color: var(--text); background: var(--surface); b
 .invite-row p { margin: 4px 0 0; }
 details.secondary { margin-top: 24px; }
 details.secondary summary { cursor: pointer; color: var(--muted); font-weight: 600; margin-bottom: 12px; }
+
+/* Essential Eight */
+.alert.info { background: var(--brand-soft); color: var(--brand); }
+.crumbs { margin: 0 0 6px; font-size: 0.88rem; color: var(--muted); }
+.crumbs a { text-decoration: none; }
+.attribution { margin-top: 24px; }
+.link-btn { background: none; border: 0; padding: 0; color: var(--brand); font: inherit; cursor: pointer; text-decoration: underline; }
+.meter { display: inline-flex; gap: 3px; flex-shrink: 0; }
+.meter span { width: 18px; height: 8px; border-radius: 3px; background: var(--line); }
+.meter span.target { background: transparent; box-shadow: inset 0 0 0 1.5px var(--brand); opacity: 0.55; }
+.meter span.on { background: var(--brand); }
+.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.segmented button { font: inherit; font-size: 0.88rem; font-weight: 600; padding: 7px 12px; border: 0; border-right: 1px solid var(--line); background: var(--surface); color: var(--text); cursor: pointer; }
+.segmented button:last-child { border-right: 0; }
+.segmented button:hover:not(:disabled) { background: var(--brand-soft); }
+.segmented button:disabled { cursor: default; color: var(--muted); }
+.segmented button.on { background: var(--brand); color: var(--brand-ink); }
+.segmented button.on.yes { background: var(--ok); color: var(--surface); }
+.segmented button.on.partly { background: var(--warn); color: var(--surface); }
+.segmented button.on.no { background: var(--bad); color: var(--surface); }
+.segmented button.on.na { background: var(--muted); color: var(--surface); }
+.strategies, .mini-strategies, .plan { list-style: none; padding: 0; margin: 0; }
+.strategies li + li, .plan li + li { border-top: 1px solid var(--line); }
+.strategy-link { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 4px; text-decoration: none; color: var(--text); border-radius: 8px; }
+.strategy-link:hover { background: var(--brand-soft); }
+.strategy-link > span:first-child { display: grid; }
+.mini-strategies { display: grid; gap: 6px; margin-top: 10px; font-size: 0.88rem; }
+.mini-strategies li { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.plan li { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 10px 0; }
+.plan a { text-decoration: none; color: var(--text); }
+.plan a:hover { color: var(--brand); }
+.effort { display: inline-block; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
+.effort.low { background: var(--ok-soft); color: var(--ok); }
+.effort.medium { background: var(--warn-soft); color: var(--warn); }
+.effort.high { background: var(--bad-soft); color: var(--bad); }
+.strategy-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+.strategy-score { display: grid; justify-items: end; gap: 4px; padding-top: 8px; }
+details.level { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 14px; }
+details.level summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 20px; cursor: pointer; list-style: none; }
+details.level summary::-webkit-details-marker { display: none; }
+details.level summary h2::before { content: "▸ "; color: var(--muted); }
+details.level[open] summary h2::before { content: "▾ "; }
+.question { display: grid; grid-template-columns: 1fr auto; gap: 16px; padding: 14px 20px; border-top: 1px solid var(--line); scroll-margin-top: 80px; }
+.question:target { background: var(--brand-soft); }
+.question-text p { margin: 4px 0 6px; }
+.question-answer { display: grid; gap: 8px; justify-items: end; align-content: start; }
+.question-answer textarea { width: 100%; min-width: 260px; resize: vertical; font-size: 0.88rem; }
+.pager { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; }
+@media (max-width: 760px) {
+  .question { grid-template-columns: 1fr; }
+  .question-answer { justify-items: start; }
+  .strategy-head { flex-direction: column; gap: 0; }
+  .strategy-score { justify-items: start; padding-top: 0; margin-bottom: 12px; }
+}

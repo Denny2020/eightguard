@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import type { Me, Org } from "./api";
 import { useAuth } from "./auth";
 import { useApi } from "./hooks";
+import { E8Home, E8PlanPage, E8StrategyPage } from "./pages/E8";
 import { Invite } from "./pages/Invite";
 import { Landing } from "./pages/Landing";
 import { Onboarding } from "./pages/Onboarding";
@@ -23,7 +24,7 @@ export function App() {
 
 function SignedIn({ path }: { path: string }) {
   const me = useApi<Me>("/me");
-  const orgRoute = match("/o/:orgId", path) ?? match("/o/:orgId/:page", path);
+  const orgRoute = match("/o/:orgId", path) ?? match("/o/:orgId/:page", path) ?? match("/o/:orgId/:page/:sub", path);
 
   useEffect(() => {
     if (me.data && path === "/") {
@@ -41,14 +42,15 @@ function SignedIn({ path }: { path: string }) {
       </Frame>
     );
   }
-  if (orgRoute) return <OrgArea me={me.data} orgId={orgRoute.orgId} page={orgRoute.page ?? "overview"} />;
+  if (orgRoute) return <OrgArea me={me.data} orgId={orgRoute.orgId} page={orgRoute.page ?? "overview"} sub={orgRoute.sub} />;
   return <Spinner />;
 }
 
-function OrgArea({ me, orgId, page }: { me: Me; orgId: string; page: string }) {
+function OrgArea({ me, orgId, page, sub }: { me: Me; orgId: string; page: string; sub?: string }) {
   const org = useApi<Org>(`/orgs/${orgId}`);
   const nav = [
     ["overview", "Overview", `/o/${orgId}`],
+    ["e8", "Essential Eight", `/o/${orgId}/e8`],
     ["team", "Team", `/o/${orgId}/team`],
   ];
   return (
@@ -60,7 +62,6 @@ function OrgArea({ me, orgId, page }: { me: Me; orgId: string; page: string }) {
               {label}
             </Link>
           ))}
-          <span className="soon">Essential Eight <em>soon</em></span>
           <span className="soon">Incident plan <em>soon</em></span>
           <span className="soon">Policies <em>soon</em></span>
         </nav>
@@ -71,6 +72,12 @@ function OrgArea({ me, orgId, page }: { me: Me; orgId: string; page: string }) {
             <Spinner />
           ) : page === "team" ? (
             <Team org={org.data} myId={me.id} />
+          ) : page === "e8" && sub === "plan" ? (
+            <E8PlanPage org={org.data} />
+          ) : page === "e8" && sub ? (
+            <E8StrategyPage key={sub} org={org.data} code={sub} />
+          ) : page === "e8" ? (
+            <E8Home org={org.data} />
           ) : (
             <Overview org={org.data} />
           )}
