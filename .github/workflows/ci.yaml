@@ -1,0 +1,291 @@
+# test → build (native amd64 + arm64) → Trivy gate → push by digest
+#   → multi-arch manifest → SBOM → cosign keyless sign + SBOM attestation → bump lab-dev (digest-pinned)
+# Images are only pushed from main (and v* tags); PRs build and scan but publish nothing.
+# CI never touches a cluster: Argo CD pulls from eightguard-gitops.
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore: ["**.md", "docs/**"]
+  pull_request:
+    paths-ignore: ["**.md", "docs/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PUBLISH: ${{ github.event_name != 'pull_request' }}
+
+jobs:
+  secret-scan:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # PRs only: blocks newly added dependencies with known HIGH/CRITICAL vulnerabilities.
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+
+  test-api:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:18.6-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 3s --health-retries 20
+    env:
+      # superuser, only so the suite can create its own non-superuser app role (see conftest.py)
+      EIGHTGUARD_TEST_ADMIN_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: api/requirements-dev.txt
+      - run: pip install --require-hashes -r api/requirements-dev.txt
+      - run: pytest -q
+        working-directory: api
+
+  test-web:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.23.2"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --ignore-scripts
+      # registry signatures and provenance attestations for every installed package
+      - run: npm audit signatures
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run build
+
+  build:
+    needs: [secret-scan, test-api, test-web]
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [api, web]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/denny2020/eightguard-${{ matrix.component }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build (load locally for scanning)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.component }}
+          target: ${{ matrix.component == 'api' && 'runtime' || '' }}
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: ${{ env.IMAGE }}:scan
+          cache-from: type=gha,scope=${{ matrix.component }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}-${{ matrix.arch }}
+
+      # Gate: fixable HIGH/CRITICAL vulnerabilities fail the build before anything is pushed.
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}:scan
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - if: env.PUBLISH == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push by digest
+        id: push
+        if: env.PUBLISH == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.component }}
+          target: ${{ matrix.component == 'api' && 'runtime' || '' }}
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.component }}-${{ matrix.arch }}
+
+      - if: env.PUBLISH == 'true'
+        run: |
+          mkdir -p digests
+          touch "digests/${DIGEST#sha256:}"
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+      - if: env.PUBLISH == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digests-${{ matrix.component }}-${{ matrix.arch }}
+          path: digests/*
+          retention-days: 1
+
+  publish:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        component: [api, web]
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # OIDC token for cosign keyless signing
+    env:
+      IMAGE: ghcr.io/denny2020/eightguard-${{ matrix.component }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: digests-${{ matrix.component }}-*
+          path: digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Immutable tags only: sha-<short> always, <semver> on v* tags. Never :latest.
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=semver,pattern={{version}}
+
+      - name: Create multi-arch manifest
+        id: manifest
+        working-directory: digests
+        run: |
+          mapfile -t tags < <(jq -r '.tags[]' <<<"$DOCKER_METADATA_OUTPUT_JSON")
+          args=()
+          for t in "${tags[@]}"; do args+=(-t "$t"); done
+          for d in *; do args+=("$IMAGE@sha256:$d"); done
+          docker buildx imagetools create "${args[@]}"
+          digest=$(docker buildx imagetools inspect "${tags[0]}" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "ref=$IMAGE@$digest" >>"$GITHUB_OUTPUT"
+
+      - name: SBOM (SPDX)
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          image: ${{ steps.manifest.outputs.ref }}
+          format: spdx-json
+          output-file: sbom-${{ matrix.component }}.spdx.json
+          artifact-name: sbom-${{ matrix.component }}.spdx.json
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      # Keyless: the signature is bound to this workflow's OIDC identity and logged in Rekor.
+      - name: Sign and attest
+        env:
+          REF: ${{ steps.manifest.outputs.ref }}
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          cosign sign --yes "$REF"
+          cosign attest --yes --type spdxjson --predicate "sbom-$COMPONENT.spdx.json" "$REF"
+          echo "### eightguard-$COMPONENT: \`$REF\`" >>"$GITHUB_STEP_SUMMARY"
+
+  # Continuous deployment to lab-dev: a PR on eightguard-gitops that pins the new images by
+  # tag AND digest in the Kustomize overlay, merged at once (the PR is the audit trail).
+  # Uses a GitHub App token limited to eightguard-gitops. Skipped until the App is configured.
+  bump-dev:
+    needs: publish
+    if: github.ref == 'refs/heads/main' && vars.GITOPS_APP_CLIENT_ID != ''
+    runs-on: ubuntu-24.04
+    permissions: {}
+    concurrency:
+      group: bump-dev
+      cancel-in-progress: false
+    steps:
+      - id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.GITOPS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
+          owner: Denny2020
+          repositories: eightguard-gitops
+          permission-contents: write
+          permission-pull-requests: write
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Denny2020/eightguard-gitops
+          token: ${{ steps.token.outputs.token }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Open and merge the bump PR
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          tag="sha-${GITHUB_SHA::7}"
+          cd deploy/eightguard/overlays/lab-dev
+          for c in api web; do
+            image="ghcr.io/denny2020/eightguard-$c"
+            digest=$(docker buildx imagetools inspect "$image:$tag" --format '{{json .Manifest}}' | jq -r .digest)
+            kustomize edit set image "$image=$image:$tag@$digest"
+          done
+          cd -
+          if git diff --quiet; then echo "lab-dev already at $tag"; exit 0; fi
+          branch="bump/lab-dev-$tag"
+          git config user.name "eightguard-ci"
+          git config user.email "eightguard-ci@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -qam "lab-dev: deploy eightguard $tag"
+          git push -q origin "$branch"
+          gh pr create --base main --head "$branch" --title "lab-dev: deploy eightguard $tag" \
+            --body "Built by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} from ${GITHUB_REPOSITORY}@${GITHUB_SHA}. Images pinned by digest and signed with cosign."
+          gh pr merge "$branch" --squash --delete-branch
+          echo "### lab-dev -> $tag" >>"$GITHUB_STEP_SUMMARY"
+
+  # The single required status check for the main branch ruleset.
+  ci-ok:
+    if: always()
+    needs: [secret-scan, dependency-review, test-api, test-web, build, publish, bump-dev]
+    runs-on: ubuntu-24.04
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "a required job failed or was cancelled" >&2
+          exit 1
+      - run: echo "all CI jobs passed"

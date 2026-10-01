@@ -1,0 +1,7 @@
+# Pipeline, images, dependency locks and the database security model are the most sensitive.
+*                          @Denny2020
+/.github/                  @Denny2020
+**/Dockerfile              @Denny2020
+/api/requirements*.txt     @Denny2020
+/web/package-lock.json     @Denny2020
+/api/migrations/           @Denny2020
