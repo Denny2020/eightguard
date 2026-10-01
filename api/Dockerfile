@@ -1,0 +1,38 @@
+# syntax=docker/dockerfile:1
+# One image, three entrypoints: the API (default), the worker (python -m app.worker) and
+# migrations (alembic upgrade head).
+FROM python:3.14.7-slim-trixie AS base
+# Apply Debian security fixes released since the upstream base image was built.
+RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
+ && rm -rf /var/lib/apt/lists/*
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PATH=/venv/bin:$PATH
+WORKDIR /app
+
+FROM base AS deps
+COPY requirements.txt .
+# venv without pip: the runtime image ships no package installer
+RUN python -m venv --without-pip /venv \
+ && pip --python /venv/bin/python install --require-hashes -r requirements.txt
+
+FROM deps AS test
+COPY requirements-dev.txt .
+RUN pip --python /venv/bin/python install --require-hashes -r requirements-dev.txt
+COPY . .
+CMD ["pytest", "-q"]
+
+FROM base AS runtime
+RUN python -m pip uninstall --yes --quiet pip \
+ && useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin app
+COPY --from=deps /venv /venv
+COPY alembic.ini .
+COPY migrations ./migrations
+COPY app ./app
+# numeric UID so Pod Security "restricted" can verify runAsNonRoot
+USER 10001
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*", "--no-server-header"]

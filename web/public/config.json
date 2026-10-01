@@ -1,0 +1,4 @@
+{
+  "authority": "https://auth.kubelab.local/realms/eightguard",
+  "clientId": "eightguard-web"
+}

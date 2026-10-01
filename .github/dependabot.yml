@@ -1,0 +1,21 @@
+# Keeps SHA-pinned actions, base images and npm packages current. Python deps are hash-locked
+# with uv (see api/README) and updated by hand for now.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ["*"] }
+  - package-ecosystem: docker
+    directories: [/api, /web]
+    schedule: { interval: weekly }
+    ignore:
+      # nginx: stay on the stable (even) line; odd minors are mainline
+      - dependency-name: nginxinc/nginx-unprivileged
+        update-types: ["version-update:semver-minor"]
+  - package-ecosystem: npm
+    directory: /web
+    schedule: { interval: weekly }
+    groups:
+      web: { patterns: ["*"] }
