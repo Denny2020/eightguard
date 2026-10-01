@@ -13,6 +13,7 @@ export interface Org { id: string; name: string; abn: string | null; created_at:
 export interface Member { user_id: string; email: string; name: string; role: Role; joined_at: string }
 export interface Invitation { id: string; email: string; role: Role; created_at: string; expires_at: string }
 export interface InvitationPreview { organisation: string; email: string; role: Role; expires_at: string }
+export interface MyInvitation { id: string; organisation: string; role: Role; expires_at: string }
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {

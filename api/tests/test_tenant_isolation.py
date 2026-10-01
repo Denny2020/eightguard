@@ -72,3 +72,17 @@ def test_invitation_token_only_reveals_its_own_org(alice, bob, anon):
     with SessionLocal() as s, s.begin():
         set_context(s, invite_hash="00" * 32)  # a wrong token sees nothing
         assert s.execute(text("SELECT count(*) FROM organisations")).scalar() == 0
+
+
+def test_invitee_only_sees_their_own_invitation_and_org_name(alice, bob, carol):
+    acme = alice.create_org("Acme")
+    globex = bob.create_org("Globex")
+    invite(alice, acme, "carol@acme.example")
+    invite(alice, acme, "dave@acme.example")
+    invite(bob, globex, "erin@globex.example")
+    carol_id = carol.get("/api/me").json()["id"]
+    with SessionLocal() as s, s.begin():
+        set_context(s, user_id=carol_id, user_email="carol@acme.example")
+        assert s.execute(text("SELECT email FROM invitations")).scalars().all() == ["carol@acme.example"]
+        assert s.execute(text("SELECT name FROM organisations")).scalars().all() == ["Acme"]
+        assert s.execute(text("SELECT count(*) FROM memberships")).scalar() == 0

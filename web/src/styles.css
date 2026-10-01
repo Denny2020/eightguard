@@ -118,3 +118,8 @@ input, select { font: inherit; color: var(--text); background: var(--surface); b
   .form.inline { grid-template-columns: 1fr; }
   .hide-sm { display: none; }
 }
+
+.invite-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.invite-row p { margin: 4px 0 0; }
+details.secondary { margin-top: 24px; }
+details.secondary summary { cursor: pointer; color: var(--muted); font-weight: 600; margin-bottom: 12px; }

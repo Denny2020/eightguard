@@ -35,7 +35,8 @@ class OrgCaller(Caller):
 
 
 def caller(claims: Claims = Depends(current_claims), session: Session = Depends(get_session)) -> Caller:
-    set_context(session, user_sub=claims.sub)
+    # the email is verified (auth.verify rejects unverified addresses), so it can scope invitations
+    set_context(session, user_sub=claims.sub, user_email=claims.email)
     user_id = session.scalar(
         insert(User)
         .values(id=new_id(), sub=claims.sub, email=claims.email, name=claims.name, last_seen_at=func.now())
