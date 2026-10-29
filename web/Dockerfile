@@ -8,7 +8,7 @@ COPY . .
 RUN npm run build
 
 # nginx-unprivileged runs as UID 101 and listens on 8080, no root needed.
-FROM nginxinc/nginx-unprivileged:1.30.5-alpine
+FROM nginxinc/nginx-unprivileged:1.30.6-alpine
 USER root
 RUN apk upgrade --no-cache
 USER 101
